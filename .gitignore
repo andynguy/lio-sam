@@ -1,0 +1,9 @@
+#ignore builds and logs
+build/
+log/
+dataset/
+#vscode
+.vscode/
+#file extensions
+*.zip
+*.pdf
