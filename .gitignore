@@ -1,5 +1,7 @@
 #ignore builds and logs
 build/
+install/
+*_bag/
 log/
 dataset/
 #vscode
