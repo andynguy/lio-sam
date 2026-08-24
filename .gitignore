@@ -4,6 +4,7 @@ install/
 *_bag/
 log/
 dataset/
+src/my_robot_controller
 #vscode
 .vscode/
 #file extensions
