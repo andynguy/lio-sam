@@ -1,4 +1,4 @@
-#include "cloud/CloudProcessor.h"
+#include "lio_sam/CloudProcessor.h"
 
 using namespace std::chrono_literals;
 
@@ -47,18 +47,20 @@ void CloudProcessor::createRangeImage() {}
 // this will create the range image used for feature extraction finding edge and planes
 
 // use for after new lidar scan comes in 
-void CloudProcessor::preintegrateImu(double startTime, double endTime)
+void CloudProcessor::preintegrateImu(const rclcpp::Time& start, const rclcpp::Time& end)
 {
     // UNFINISHED, maybe do this for two frames
     //LOCK mutex copy imu vector here
+
     std::deque<sensor_msgs::msg::Imu::SharedPtr> bufferCopy;
     {
         std::lock_guard<std::mutex> lock(imu_mutex_);
         for (sensor_msgs::msg::Imu::SharedPtr imuReading : imu_buffer_)
         {
-            if (imuReading->header.stamp.sec < startTime)
+            rclcpp::Time imuTime = rclcpp::Time(imuReading->header.stamp);
+            if (imuTime < start)
                 continue;
-            if (imuReading->header.stamp.sec > endTime)
+            if (imuTime > end)
                 break;
             bufferCopy.push_back(imuReading);
         }

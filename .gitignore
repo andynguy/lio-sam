@@ -10,3 +10,7 @@ src/my_robot_controller
 #file extensions
 *.zip
 *.pdf
+
+# generated bags & python caches
+bags/
+__pycache__/
