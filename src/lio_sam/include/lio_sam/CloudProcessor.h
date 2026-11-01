@@ -7,9 +7,10 @@
 #include "std_msgs/msg/string.hpp"
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/msg/imu.hpp>
-#incldue <geom
+#include <geometry_msgs/msg/quaternion.hpp>
+#include <geometry_msgs/msg/vector3.hpp>
 
-constexpr int MAX_BUFFER_SIZE = 20;
+constexpr int MAX_BUFFER_SIZE = 200;
 
 // Takes in gyroscope readings
 // TODO(AN): create imu node reader that takes in gyroscope scans
@@ -46,7 +47,8 @@ struct KeyFrame
     void timer_callback();
     void processCloud(const sensor_msgs::msg::PointCloud2::SharedPtr msg);
     void storeImu(const sensor_msgs::msg::Imu::SharedPtr msg);
-    void preintegrateImu();
+    void createRangeImage();
+    void preintegrateImu(const rclcpp::Time& start, const rclcpp::Time& end);
 
 private:
     rclcpp::TimerBase::SharedPtr timer;

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(cloud)
+project(lio_sam)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -10,22 +10,37 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(Eigen3 REQUIRED)
 
-set(target cloud_processor)
-
-add_executable(${target} src/CloudProcessor.cpp src/main.cpp)
-
-target_include_directories(${target} PUBLIC
+add_library(lio_sam_utils src/MathUtils.cpp)
+target_include_directories(lio_sam_utils PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
+target_link_libraries(lio_sam_utils PUBLIC Eigen3::Eigen)
 
-ament_target_dependencies(${target} 
-                         rclcpp 
-                         std_msgs 
-                         sensor_msgs)
+add_executable(cloud_processor src/CloudProcessor.cpp src/main.cpp)
+target_include_directories(cloud_processor PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>)
+ament_target_dependencies(cloud_processor
+                         rclcpp
+                         std_msgs
+                         sensor_msgs
+                         geometry_msgs)
+
+add_executable(imu_odometry src/ImuOdometry.cpp src/ImuMain.cpp)
+target_link_libraries(imu_odometry lio_sam_utils)
+ament_target_dependencies(imu_odometry
+                         rclcpp
+                         sensor_msgs
+                         nav_msgs
+                         geometry_msgs)
 
 install(TARGETS
-  ${target}
+  cloud_processor
+  imu_odometry
   DESTINATION lib/${PROJECT_NAME})
 
 install(DIRECTORY include/
