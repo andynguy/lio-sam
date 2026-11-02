@@ -56,6 +56,11 @@ if(BUILD_TESTING)
   # a copyright and license is added to all source files
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
+
+  # Unit tests
+  find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(test_math_utils test/test_math_utils.cpp)
+  target_link_libraries(test_math_utils lio_sam_utils)
 endif()
 
 ament_package()
