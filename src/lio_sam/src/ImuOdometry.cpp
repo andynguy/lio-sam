@@ -2,6 +2,35 @@
 
 using namespace std::chrono_literals;
 
+namespace
+{
+Eigen::Vector3d toEigen(const geometry_msgs::msg::Point& p)
+{
+    return Eigen::Vector3d(p.x, p.y, p.z);
+}
+
+geometry_msgs::msg::Point toPoint(const Eigen::Vector3d& v)
+{
+    geometry_msgs::msg::Point p;
+    p.x = v.x();
+    p.y = v.y();
+    p.z = v.z();
+    return p;
+}
+
+geometry_msgs::msg::Quaternion toQuaternion(const Eigen::Matrix3d& R)
+{
+    // Normalize because R drifts slightly from a pure rotation after many integration steps.
+    const Eigen::Quaterniond q = Eigen::Quaterniond(R).normalized();
+    geometry_msgs::msg::Quaternion out;
+    out.w = q.w();
+    out.x = q.x();
+    out.y = q.y();
+    out.z = q.z();
+    return out;
+}
+}  // namespace
+
 ImuOdometry::ImuOdometry() : Node("imu_odometry"), 
                              state_{Eigen::Matrix3d::Identity(), Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero()},
                              bias_{Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero()},
@@ -20,6 +49,7 @@ ImuOdometry::ImuOdometry() : Node("imu_odometry"),
                     std::bind(&ImuOdometry::imuCallback, this, std::placeholders::_1));
     gt_sub_ = create_subscription<nav_msgs::msg::Odometry>("/kitti/ground_truth/odom", rclcpp::QoS(1000),
                     std::bind(&ImuOdometry::groundTruthCallback, this, std::placeholders::_1));
+    imu_drift_error_checkpoints_ = {0, 10, 20, 30, 40, 50};
 }
 
 void ImuOdometry::initialize(const nav_msgs::msg::Odometry& gt, const rclcpp::Time& stamp)
@@ -88,15 +118,11 @@ void ImuOdometry::imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg)
     geometry_msgs::msg::PoseStamped pose_new;
     pose_new.header.stamp = msg->header.stamp;
     pose_new.header.frame_id = "map";
-    pose_new.pose.position.x = state_.p.x();
-    pose_new.pose.position.y = state_.p.y();
-    pose_new.pose.position.z = state_.p.z();
-    const Eigen::Quaterniond q(state_.R);   // rotation matrix -> quaternion
-    pose_new.pose.orientation.w = q.w();
-    pose_new.pose.orientation.x = q.x();
-    pose_new.pose.orientation.y = q.y();
-    pose_new.pose.orientation.z = q.z();
+    pose_new.pose.position = toPoint(state_.p);
+    pose_new.pose.orientation = toQuaternion(state_.R);
     imu_path_.poses.push_back(pose_new);
+    publishOdometry(msg->header.stamp, gyro);
+    logImuDrift(msg->header.stamp);
 }
 
 void ImuOdometry::groundTruthCallback(const nav_msgs::msg::Odometry::SharedPtr msg)
@@ -109,5 +135,37 @@ void ImuOdometry::groundTruthCallback(const nav_msgs::msg::Odometry::SharedPtr m
     pose_gt.header = msg->header;
     pose_gt.pose = msg->pose.pose;
     gt_path_.poses.push_back(pose_gt);
+}
+
+void ImuOdometry::publishOdometry(const rclcpp::Time& stamp, const Eigen::Vector3d& gyro)
+{
+    nav_msgs::msg::Odometry odomMsg;
+    odomMsg.header.stamp = stamp;
+    odomMsg.header.frame_id = "map";
+    odomMsg.child_frame_id = "imu_link";
+    odomMsg.pose.pose.position = toPoint(state_.p);
+    odomMsg.pose.pose.orientation = toQuaternion(state_.R);
+    Eigen::Vector3d v_body = state_.R.transpose() * state_.v;
+    odomMsg.twist.twist.linear.x = v_body.x();
+    odomMsg.twist.twist.linear.y = v_body.y();
+    odomMsg.twist.twist.linear.z = v_body.z();
+    Eigen::Vector3d w = gyro - bias_.bg;
+    odomMsg.twist.twist.angular.x = w.x();
+    odomMsg.twist.twist.angular.y = w.y();
+    odomMsg.twist.twist.angular.z = w.z();
+    odom_pub_->publish(odomMsg);
+}
+    
+void ImuOdometry::logImuDrift(const rclcpp::Time& stamp)
+{
+    if (imu_drift_next_checkpoint_ >= imu_drift_error_checkpoints_.size()) return;
+    double elapsedTime = (stamp - start_time_).seconds();
+    if (elapsedTime >= imu_drift_error_checkpoints_[imu_drift_next_checkpoint_])
+    {
+        double error = (toEigen(latest_gt_.pose.pose.position) - state_.p).norm();
+        RCLCPP_INFO(get_logger(),
+                    "Imu Drift Error (m): %.2f at time %.2f", error, elapsedTime);
+        imu_drift_next_checkpoint_++;
+    }
 }
                              
