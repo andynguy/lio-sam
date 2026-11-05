@@ -21,9 +21,9 @@ private:
     void imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg);
     void groundTruthCallback(const nav_msgs::msg::Odometry::SharedPtr msg);
     void initialize(const nav_msgs::msg::Odometry& gt, const rclcpp::Time& stamp);
-    void publishOdometry(const rclcpp::Time& stamp);
+    void publishOdometry(const rclcpp::Time& stamp, const Eigen::Vector3d& gyro);
     void publishPaths();
-    void logError(const rclcpp::Time& stamp);
+    void logImuDrift(const rclcpp::Time& stamp);
 
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr gt_sub_;
@@ -45,6 +45,6 @@ private:
     nav_msgs::msg::Path imu_path_;
     nav_msgs::msg::Path gt_path_;
 
-    std::vector<double> error_checkpoints_;
-    std::size_t next_checkpoint_;
+    std::vector<double> imu_drift_error_checkpoints_;
+    std::size_t imu_drift_next_checkpoint_{0};
 };
