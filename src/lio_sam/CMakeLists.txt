@@ -13,6 +13,7 @@ find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(tf2_eigen REQUIRED)
 
 add_library(lio_sam_utils src/MathUtils.cpp)
 target_include_directories(lio_sam_utils PUBLIC
@@ -36,7 +37,8 @@ ament_target_dependencies(imu_odometry
                          rclcpp
                          sensor_msgs
                          nav_msgs
-                         geometry_msgs)
+                         geometry_msgs
+                         tf2_eigen)
 
 install(TARGETS
   cloud_processor

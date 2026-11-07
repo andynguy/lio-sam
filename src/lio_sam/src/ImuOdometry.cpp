@@ -1,33 +1,15 @@
 #include "lio_sam/ImuOdometry.h"
+#include "tf2_eigen/tf2_eigen.hpp"
 
 using namespace std::chrono_literals;
 
 namespace
 {
-Eigen::Vector3d toEigen(const geometry_msgs::msg::Point& p)
-{
-    return Eigen::Vector3d(p.x, p.y, p.z);
-}
-
-geometry_msgs::msg::Point toPoint(const Eigen::Vector3d& v)
-{
-    geometry_msgs::msg::Point p;
-    p.x = v.x();
-    p.y = v.y();
-    p.z = v.z();
-    return p;
-}
-
-geometry_msgs::msg::Quaternion toQuaternion(const Eigen::Matrix3d& R)
+geometry_msgs::msg::Quaternion toNormalizedQuaternion(const Eigen::Matrix3d& R)
 {
     // Normalize because R drifts slightly from a pure rotation after many integration steps.
     const Eigen::Quaterniond q = Eigen::Quaterniond(R).normalized();
-    geometry_msgs::msg::Quaternion out;
-    out.w = q.w();
-    out.x = q.x();
-    out.y = q.y();
-    out.z = q.z();
-    return out;
+    return tf2::toMsg(q);
 }
 }  // namespace
 
@@ -118,8 +100,8 @@ void ImuOdometry::imuCallback(const sensor_msgs::msg::Imu::SharedPtr msg)
     geometry_msgs::msg::PoseStamped pose_new;
     pose_new.header.stamp = msg->header.stamp;
     pose_new.header.frame_id = "map";
-    pose_new.pose.position = toPoint(state_.p);
-    pose_new.pose.orientation = toQuaternion(state_.R);
+    pose_new.pose.position = tf2::toMsg(state_.p);
+    pose_new.pose.orientation = toNormalizedQuaternion(state_.R);
     imu_path_.poses.push_back(pose_new);
     publishOdometry(msg->header.stamp, gyro);
     logImuDrift(msg->header.stamp);
@@ -143,16 +125,13 @@ void ImuOdometry::publishOdometry(const rclcpp::Time& stamp, const Eigen::Vector
     odomMsg.header.stamp = stamp;
     odomMsg.header.frame_id = "map";
     odomMsg.child_frame_id = "imu_link";
-    odomMsg.pose.pose.position = toPoint(state_.p);
-    odomMsg.pose.pose.orientation = toQuaternion(state_.R);
+    odomMsg.pose.pose.position = tf2::toMsg(state_.p);
+    odomMsg.pose.pose.orientation = toNormalizedQuaternion(state_.R);
     Eigen::Vector3d v_body = state_.R.transpose() * state_.v;
-    odomMsg.twist.twist.linear.x = v_body.x();
-    odomMsg.twist.twist.linear.y = v_body.y();
-    odomMsg.twist.twist.linear.z = v_body.z();
     Eigen::Vector3d w = gyro - bias_.bg;
-    odomMsg.twist.twist.angular.x = w.x();
-    odomMsg.twist.twist.angular.y = w.y();
-    odomMsg.twist.twist.angular.z = w.z();
+    Eigen::Matrix<double,6,1> twistEigen;
+    twistEigen << v_body, w;
+    odomMsg.twist.twist = tf2::toMsg(twistEigen);
     odom_pub_->publish(odomMsg);
 }
     
@@ -162,7 +141,9 @@ void ImuOdometry::logImuDrift(const rclcpp::Time& stamp)
     double elapsedTime = (stamp - start_time_).seconds();
     if (elapsedTime >= imu_drift_error_checkpoints_[imu_drift_next_checkpoint_])
     {
-        double error = (toEigen(latest_gt_.pose.pose.position) - state_.p).norm();
+        Eigen::Vector3d gt_position;
+        tf2::fromMsg(latest_gt_.pose.pose.position, gt_position);
+        double error = (gt_position - state_.p).norm();
         RCLCPP_INFO(get_logger(),
                     "Imu Drift Error (m): %.2f at time %.2f", error, elapsedTime);
         imu_drift_next_checkpoint_++;
