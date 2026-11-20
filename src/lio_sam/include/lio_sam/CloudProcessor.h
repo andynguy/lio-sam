@@ -1,71 +1,45 @@
 #pragma once
 
+// First, so PCL_NO_PRECOMPILE is defined before any other header pulls in PCL.
+#include "lio_sam/PointTypes.h"
 
 #include <deque>
+#include <memory>
 #include <mutex>
+
+#include <Eigen/Geometry>
+
 #include "rclcpp/rclcpp.hpp"
-#include "std_msgs/msg/string.hpp"
-#include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/msg/imu.hpp>
-#include <geometry_msgs/msg/quaternion.hpp>
-#include <geometry_msgs/msg/vector3.hpp>
+#include <sensor_msgs/msg/point_cloud2.hpp>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
 
-constexpr int MAX_BUFFER_SIZE = 200;
+constexpr int MAX_BUFFER_SIZE = 200;  // Step 4 replaces count-based pruning with time-based
 
-// Takes in gyroscope readings
-// TODO(AN): create imu node reader that takes in gyroscope scans
-// use gyroscope scans to deskew point cloud
-
-// NOW WE NEED A WAY TO VERIFY THAT WE ARE DESKEWING POINT CLOUD, 
-// gotta think of a way to test before and after to see if deskewing worked
+// Phase 3 (image_projection): deskews each lidar sweep with the IMU, then builds the range image.
 class CloudProcessor : public rclcpp::Node
 {
 public:
-struct Quaternion
-{
-    float x, y, z, w;
-};
-struct Position
-{
-    float x, y, z;
-};
-struct Velocity
-{
-    float x, y, z;
-};
-struct KeyFrame
-{
-    // From body frame to world frame
-   Quaternion orientation;
-   Position position;
-   Velocity velocity;
-   double time;
-};
-
-// TODO(an): CREATE LIDAR FRAME LOGIC ON PAGE 3/8
     CloudProcessor();
-    void timer_callback();
+
+private:
     void processCloud(const sensor_msgs::msg::PointCloud2::SharedPtr msg);
     void storeImu(const sensor_msgs::msg::Imu::SharedPtr msg);
+    bool loadExtrinsic();
     void createRangeImage();
     void preintegrateImu(const rclcpp::Time& start, const rclcpp::Time& end);
 
-private:
-    rclcpp::TimerBase::SharedPtr timer;
-    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr publisher;
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
+    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr raw_pub_;  // /deskew/cloud_raw
 
     std::mutex imu_mutex_;
     std::deque<sensor_msgs::msg::Imu::SharedPtr> imu_buffer_;
 
-    std::vector<KeyFrame> keyframes;
-
-    //TODO(AN): turn these into eigen matrices 
-    geometry_msgs::msg::Quaternion delta_q;
-    geometry_msgs::msg::Vector3 delta_w;
-    geometry_msgs::msg::Vector3 delta_a;
-
-    
-    
+    // IMU -> lidar extrinsic, read once from /tf_static.
+    std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
+    std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
+    bool have_extrinsic_{false};
+    Eigen::Isometry3d T_LI_{Eigen::Isometry3d::Identity()};  // p_lidar = T_LI_ * p_imu
 };

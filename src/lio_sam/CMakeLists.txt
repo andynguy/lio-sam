@@ -14,6 +14,9 @@ find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(tf2_eigen REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(PCL REQUIRED COMPONENTS common)
+find_package(pcl_conversions REQUIRED)
 
 add_library(lio_sam_utils src/MathUtils.cpp)
 target_include_directories(lio_sam_utils PUBLIC
@@ -25,11 +28,15 @@ add_executable(cloud_processor src/CloudProcessor.cpp src/main.cpp)
 target_include_directories(cloud_processor PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
+target_include_directories(cloud_processor PRIVATE ${PCL_INCLUDE_DIRS})
+target_link_libraries(cloud_processor lio_sam_utils ${PCL_LIBRARIES})
 ament_target_dependencies(cloud_processor
                          rclcpp
-                         std_msgs
                          sensor_msgs
-                         geometry_msgs)
+                         geometry_msgs
+                         tf2_ros
+                         tf2_eigen
+                         pcl_conversions)
 
 add_executable(imu_odometry src/ImuOdometry.cpp src/ImuMain.cpp)
 target_link_libraries(imu_odometry lio_sam_utils)

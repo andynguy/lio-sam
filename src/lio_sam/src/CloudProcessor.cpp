@@ -1,33 +1,71 @@
 #include "lio_sam/CloudProcessor.h"
 
-using namespace std::chrono_literals;
+#include <cmath>
+
+#include <tf2/exceptions.h>
+#include "tf2_eigen/tf2_eigen.hpp"
+
+namespace
+{
+constexpr char kImuFrame[] = "imu_link";
+constexpr char kLidarFrame[] = "velo_link";
+}  // namespace
 
 CloudProcessor::CloudProcessor() : Node("cloud_processor")
 {
-    publisher = this->create_publisher<std_msgs::msg::String>("topic", 10);
-    // Timer to trigger periodic publishing
-    std::cout << "should start triggering timer..." << std::endl;
-    timer = this->create_wall_timer(
-             500ms, std::bind(&CloudProcessor::timer_callback, this));
-    
-    cloud_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>("/kitti/velo", 10,
+    tf_buffer_ = std::make_shared<tf2_ros::Buffer>(get_clock());
+    tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
+
+    // Raw cloud after the PCL round trip (step 2), for comparing against the deskewed cloud.
+    raw_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>("/deskew/cloud_raw", 5);
+
+    // Reliable rather than SensorDataQoS (best effort): a 2.7 MB cloud is split into many
+    // network fragments, and with best effort losing one fragment drops the whole scan.
+    // The IMU queue holds 10 s at 100 Hz, so a slow scan callback never drops IMU samples.
+    cloud_sub_ = create_subscription<sensor_msgs::msg::PointCloud2>("/kitti/velo", rclcpp::QoS(5),
            std::bind(&CloudProcessor::processCloud, this, std::placeholders::_1));
-    imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>("/kitti/oxts/imu", 10,
+    imu_sub_ = create_subscription<sensor_msgs::msg::Imu>("/kitti/oxts/imu", rclcpp::QoS(1000),
            std::bind(&CloudProcessor::storeImu, this, std::placeholders::_1));
 }
 
-void CloudProcessor::timer_callback()
+bool CloudProcessor::loadExtrinsic()
 {
-    auto message = std_msgs::msg::String();
-    message.data = "Hello world!";
-    publisher->publish(message);
+    if (have_extrinsic_) return true;
+
+    geometry_msgs::msg::TransformStamped tf_msg;
+    try
+    {
+        // lookupTransform(target, source) returns the transform that maps points from the
+        // source frame into the target frame, so this gives p_lidar = T_LI * p_imu.
+        tf_msg = tf_buffer_->lookupTransform(kLidarFrame, kImuFrame, tf2::TimePointZero);
+    }
+    catch (const tf2::TransformException& e)
+    {
+        RCLCPP_WARN(get_logger(), "No %s -> %s transform yet, skipping this scan: %s",
+                    kImuFrame, kLidarFrame, e.what());
+        return false;
+    }
+
+    T_LI_ = tf2::transformToEigen(tf_msg);
+    have_extrinsic_ = true;
+
+    const Eigen::AngleAxisd aa(T_LI_.rotation());
+    const Eigen::Vector3d& t = T_LI_.translation();
+    RCLCPP_INFO(get_logger(),
+                "Extrinsic %s -> %s: rotation %.3f deg about (%.3f, %.3f, %.3f), "
+                "translation (%.3f, %.3f, %.3f) m",
+                kImuFrame, kLidarFrame, aa.angle() * 180.0 / M_PI,
+                aa.axis().x(), aa.axis().y(), aa.axis().z(), t.x(), t.y(), t.z());
+    return true;
 }
 
 void CloudProcessor::processCloud(const sensor_msgs::msg::PointCloud2::SharedPtr msg)
 {
-    RCLCPP_INFO(this->get_logger(), "Got point cloud: %d x %d points",
-                msg->width, msg->height);
-    
+    if (!loadExtrinsic()) return;
+
+    // Step 2: convert to pcl::PointCloud<PointXYZIRT> and republish on /deskew/cloud_raw.
+    // Step 4: queue the scan until the IMU buffer covers its whole sweep window.
+    RCLCPP_DEBUG(get_logger(), "Got point cloud: %u points", msg->width * msg->height);
 }
 
 void CloudProcessor::storeImu(const sensor_msgs::msg::Imu::SharedPtr msg)
@@ -35,18 +73,14 @@ void CloudProcessor::storeImu(const sensor_msgs::msg::Imu::SharedPtr msg)
     std::lock_guard<std::mutex> lock(imu_mutex_);
     imu_buffer_.push_back(msg);
 
-    if(imu_buffer_.size() > MAX_BUFFER_SIZE)
+    if (imu_buffer_.size() > MAX_BUFFER_SIZE)
         imu_buffer_.pop_front();
-
-    RCLCPP_INFO(this->get_logger(), "Buffer Size: %d", (int)imu_buffer_.size());
-
 }
 
 void CloudProcessor::createRangeImage() {}
-// TODO(AN): DO THIS FIRSTTTTTTTTTTTTTTt!!!
-// this will create the range image used for feature extraction finding edge and planes
+// Step 10: project the deskewed cloud onto the 64 x 2000 range image.
 
-// use for after new lidar scan comes in 
+// use for after new lidar scan comes in
 void CloudProcessor::preintegrateImu(const rclcpp::Time& start, const rclcpp::Time& end)
 {
     // UNFINISHED, maybe do this for two frames
@@ -65,13 +99,4 @@ void CloudProcessor::preintegrateImu(const rclcpp::Time& start, const rclcpp::Ti
             bufferCopy.push_back(imuReading);
         }
     }
-
-
-    
-
-    
-    // add up R, p, v
-
-    //
-
 }
