@@ -59,11 +59,32 @@ bool CloudProcessor::loadExtrinsic()
     return true;
 }
 
+bool CloudProcessor::cacheCloud()
+{
+    if (cloud_queue_.size() <= 2) return false;
+    
+}
+
+bool CloudProcessor::imuCovers(double t0, double t1)
+{
+    return rclcpp::Time(imu_buffer_.front()->header.stamp).seconds() <= t0 and 
+           rclcpp::Time(imu_buffer_.back()->header.stamp).seconds() >= t1;
+}
+
 void CloudProcessor::processCloud(const sensor_msgs::msg::PointCloud2::SharedPtr msg)
 {
     if (!loadExtrinsic()) return;
 
     // Step 2: convert to pcl::PointCloud<PointXYZIRT> and republish on /deskew/cloud_raw.
+    pcl::PointCloud<PointXYZIRT> cloud;
+    pcl::fromROSMsg(*msg, cloud);
+
+    cloud_queue_.push_back(cloud);
+    // convert back
+    sensor_msgs::msg::PointCloud2 ros_out_msg;
+    pcl::toROSMsg(cloud, ros_out_msg);
+    ros_out_msg.header = msg->header;
+    raw_pub_->publish(ros_out_msg);
     // Step 4: queue the scan until the IMU buffer covers its whole sweep window.
     RCLCPP_DEBUG(get_logger(), "Got point cloud: %u points", msg->width * msg->height);
 }
@@ -71,6 +92,12 @@ void CloudProcessor::processCloud(const sensor_msgs::msg::PointCloud2::SharedPtr
 void CloudProcessor::storeImu(const sensor_msgs::msg::Imu::SharedPtr msg)
 {
     std::lock_guard<std::mutex> lock(imu_mutex_);
+    if (!imu_buffer_.empty() and rclcpp::Time(msg->header.stamp) < rclcpp::Time(imu_buffer_.back()->header.stamp))
+    {
+        RCLCPP_WARN(get_logger(), "Out of time order imu measurement at %f", 
+                                  rclcpp::Time(imu_buffer_.back()->header.stamp).seconds());
+        return;
+    }
     imu_buffer_.push_back(msg);
 
     if (imu_buffer_.size() > MAX_BUFFER_SIZE)

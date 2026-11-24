@@ -12,8 +12,10 @@
 #include "rclcpp/rclcpp.hpp"
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
+#include <std_msgs/msg/header.hpp>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
+#include "pcl_conversions/pcl_conversions.h"
 
 constexpr int MAX_BUFFER_SIZE = 200;  // Step 4 replaces count-based pruning with time-based
 
@@ -26,9 +28,11 @@ public:
 private:
     void processCloud(const sensor_msgs::msg::PointCloud2::SharedPtr msg);
     void storeImu(const sensor_msgs::msg::Imu::SharedPtr msg);
+    bool imuCovers(double t0, double t1);
     bool loadExtrinsic();
     void createRangeImage();
     void preintegrateImu(const rclcpp::Time& start, const rclcpp::Time& end);
+    bool cacheCloud();
 
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
@@ -36,10 +40,16 @@ private:
 
     std::mutex imu_mutex_;
     std::deque<sensor_msgs::msg::Imu::SharedPtr> imu_buffer_;
+    std::deque<pcl::PointCloud<PointXYZIRT>> cloud_queue_;
+    pcl::PointCloud<PointXYZIRT> current_cloud_msg_;
+    std_msgs::msg::Header current_cloud_header_;
+    
 
     // IMU -> lidar extrinsic, read once from /tf_static.
     std::shared_ptr<tf2_ros::Buffer> tf_buffer_;
     std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
     bool have_extrinsic_{false};
     Eigen::Isometry3d T_LI_{Eigen::Isometry3d::Identity()};  // p_lidar = T_LI_ * p_imu
+
+
 };
