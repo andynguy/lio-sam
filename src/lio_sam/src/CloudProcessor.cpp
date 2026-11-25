@@ -59,10 +59,15 @@ bool CloudProcessor::loadExtrinsic()
     return true;
 }
 
-bool CloudProcessor::cacheCloud()
+bool CloudProcessor::cacheCloud(const sensor_msgs::msg::PointCloud2::SharedPtr cloud_msg)
 {
-    if (cloud_queue_.size() <= 2) return false;
-    
+    cloud_msg_queue_.push_back(cloud_msg);
+    if (cloud_msg_queue_.size() <= 2) return false;
+    current_cloud_msg_ = cloud_msg_queue_.front();
+    pcl::moveFromROSMsg(*cloud_msg, *lidar_cloud_);
+    cloud_msg_queue_.pop_front();
+    current_cloud_header_ = current_cloud_msg_->header;
+    return true;
 }
 
 bool CloudProcessor::imuCovers(double t0, double t1)
@@ -79,7 +84,8 @@ void CloudProcessor::processCloud(const sensor_msgs::msg::PointCloud2::SharedPtr
     pcl::PointCloud<PointXYZIRT> cloud;
     pcl::fromROSMsg(*msg, cloud);
 
-    cloud_queue_.push_back(cloud);
+    // TODO(AN): temporary cacheCloud, make sure to return if false
+    cacheCloud(msg);
     // convert back
     sensor_msgs::msg::PointCloud2 ros_out_msg;
     pcl::toROSMsg(cloud, ros_out_msg);

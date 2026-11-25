@@ -32,7 +32,7 @@ private:
     bool loadExtrinsic();
     void createRangeImage();
     void preintegrateImu(const rclcpp::Time& start, const rclcpp::Time& end);
-    bool cacheCloud();
+    bool cacheCloud(const sensor_msgs::msg::PointCloud2::SharedPtr cloud);
 
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
@@ -40,8 +40,9 @@ private:
 
     std::mutex imu_mutex_;
     std::deque<sensor_msgs::msg::Imu::SharedPtr> imu_buffer_;
-    std::deque<pcl::PointCloud<PointXYZIRT>> cloud_queue_;
-    pcl::PointCloud<PointXYZIRT> current_cloud_msg_;
+    std::deque<sensor_msgs::msg::PointCloud2::SharedPtr> cloud_msg_queue_;
+    pcl::PointCloud<PointXYZIRT>::Ptr lidar_cloud_;
+    sensor_msgs::msg::PointCloud2::SharedPtr current_cloud_msg_;
     std_msgs::msg::Header current_cloud_header_;
     
 
