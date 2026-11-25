@@ -9,6 +9,13 @@ namespace
 {
 constexpr char kImuFrame[] = "imu_link";
 constexpr char kLidarFrame[] = "velo_link";
+
+struct CloudRotationCorrection
+{
+    // refers to start/end of cloud scan
+    double t0, t1;
+    
+}
 }  // namespace
 
 CloudProcessor::CloudProcessor() : Node("cloud_processor")

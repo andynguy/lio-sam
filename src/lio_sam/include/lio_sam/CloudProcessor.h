@@ -34,6 +34,23 @@ private:
     void preintegrateImu(const rclcpp::Time& start, const rclcpp::Time& end);
     bool cacheCloud(const sensor_msgs::msg::PointCloud2::SharedPtr cloud);
 
+    // ADDING DESKEW PLAN
+    // grab imu samples from t0 and t1 (time of cloud scans)
+    // struct CloudRotationCorrection
+    // double t0, t1
+    // generateCorrection(double t0, double t1) consumes IMU frames and pops them out
+    // Create vector<ImuRotationKnot>
+        // ImuRotationKnot will have dt (from last ImuRotationKnot or IMU frame), angular velocity (w), R from start of cloud scan
+        // add(w) will add a ImuRotationKnot and calculate a new R at that point
+        // CONSIDER storing as a quaternion, and then normalizing it so that R stays on SO(3)
+    
+    // for each point in cloud
+        // assuming theres an associated Ri for every ti (IMU frame time)
+        // if cloud point has time t and is within [ti, tj]
+        // Rt = Ri exp(w^hat * (t - ti))
+        // then p_deskewed = R_t * p_raw
+
+
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr raw_pub_;  // /deskew/cloud_raw
