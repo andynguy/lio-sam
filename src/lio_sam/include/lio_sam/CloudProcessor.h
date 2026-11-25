@@ -41,7 +41,7 @@ private:
     std::mutex imu_mutex_;
     std::deque<sensor_msgs::msg::Imu::SharedPtr> imu_buffer_;
     std::deque<sensor_msgs::msg::PointCloud2::SharedPtr> cloud_msg_queue_;
-    pcl::PointCloud<PointXYZIRT>::Ptr lidar_cloud_;
+    pcl::PointCloud<PointXYZIRT> lidar_cloud_;
     sensor_msgs::msg::PointCloud2::SharedPtr current_cloud_msg_;
     std_msgs::msg::Header current_cloud_header_;
     

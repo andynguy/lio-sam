@@ -64,15 +64,29 @@ bool CloudProcessor::cacheCloud(const sensor_msgs::msg::PointCloud2::SharedPtr c
     cloud_msg_queue_.push_back(cloud_msg);
     if (cloud_msg_queue_.size() <= 2) return false;
     current_cloud_msg_ = cloud_msg_queue_.front();
-    pcl::moveFromROSMsg(*cloud_msg, *lidar_cloud_);
-    cloud_msg_queue_.pop_front();
+    pcl::moveFromROSMsg(*current_cloud_msg_, lidar_cloud_);
     current_cloud_header_ = current_cloud_msg_->header;
+    cloud_msg_queue_.pop_front();
+    if (lidar_cloud_.points.empty())
+    {
+        RCLCPP_WARN(get_logger(), "WARNING: Dropped lidar cloud scan because of empty cloud!");
+        return false;
+    }
+    double time_start = rclcpp::Time(current_cloud_header_.stamp).seconds();
+    double time_end = time_start + lidar_cloud_.points.back().time;
+    if (!imuCovers(time_start, time_end))
+    {    
+        RCLCPP_WARN(get_logger(), "WARNING: Dropped lidar cloud scan because imu does not cover full scan!");
+        return false;
+    }
     return true;
 }
 
 bool CloudProcessor::imuCovers(double t0, double t1)
 {
-    return rclcpp::Time(imu_buffer_.front()->header.stamp).seconds() <= t0 and 
+    std::lock_guard<std::mutex> lock(imu_mutex_);
+    return !imu_buffer_.empty() &&
+           rclcpp::Time(imu_buffer_.front()->header.stamp).seconds() <= t0 &&
            rclcpp::Time(imu_buffer_.back()->header.stamp).seconds() >= t1;
 }
 
@@ -80,25 +94,22 @@ void CloudProcessor::processCloud(const sensor_msgs::msg::PointCloud2::SharedPtr
 {
     if (!loadExtrinsic()) return;
 
-    // Step 2: convert to pcl::PointCloud<PointXYZIRT> and republish on /deskew/cloud_raw.
-    pcl::PointCloud<PointXYZIRT> cloud;
-    pcl::fromROSMsg(*msg, cloud);
-
-    // TODO(AN): temporary cacheCloud, make sure to return if false
-    cacheCloud(msg);
+    // Caches cloud to main lidar_cloud_ and publishes to topic. 
+    // If IMU does not cover the scan, then drop the scan.
+    if (!cacheCloud(msg))
+        return;
     // convert back
     sensor_msgs::msg::PointCloud2 ros_out_msg;
-    pcl::toROSMsg(cloud, ros_out_msg);
-    ros_out_msg.header = msg->header;
+    pcl::toROSMsg(lidar_cloud_, ros_out_msg);
+    ros_out_msg.header = current_cloud_header_;
     raw_pub_->publish(ros_out_msg);
-    // Step 4: queue the scan until the IMU buffer covers its whole sweep window.
-    RCLCPP_DEBUG(get_logger(), "Got point cloud: %u points", msg->width * msg->height);
+    RCLCPP_DEBUG(get_logger(), "Got point cloud: %u points", lidar_cloud_->width * lidar_cloud_->height);
 }
 
 void CloudProcessor::storeImu(const sensor_msgs::msg::Imu::SharedPtr msg)
 {
     std::lock_guard<std::mutex> lock(imu_mutex_);
-    if (!imu_buffer_.empty() and rclcpp::Time(msg->header.stamp) < rclcpp::Time(imu_buffer_.back()->header.stamp))
+    if (!imu_buffer_.empty() && rclcpp::Time(msg->header.stamp) < rclcpp::Time(imu_buffer_.back()->header.stamp))
     {
         RCLCPP_WARN(get_logger(), "Out of time order imu measurement at %f", 
                                   rclcpp::Time(imu_buffer_.back()->header.stamp).seconds());
